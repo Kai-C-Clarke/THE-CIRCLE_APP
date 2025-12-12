@@ -11,6 +11,20 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 CORS(app)
 
+# === DEBUG: Check environment at startup ===
+print("=" * 60)
+print("🚀 THE CIRCLE - Family Memory App Starting...")
+print(f"Python: {sys.version}")
+print(f"DATABASE_URL set: {'YES' if 'DATABASE_URL' in os.environ else 'NO'}")
+if 'DATABASE_URL' in os.environ:
+    db_url = os.environ['DATABASE_URL']
+    print(f"Database: {'PostgreSQL' if 'postgres' in db_url else 'SQLite'}")
+    if len(db_url) > 60:
+        print(f"URL: {db_url[:30]}...{db_url[-30:]}")
+    else:
+        print(f"URL: {db_url}")
+print("=" * 60)
+
 # === UNIVERSAL CONFIGURATION ===
 # Use environment variables with safe defaults
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-for-local-testing-123')
@@ -29,12 +43,29 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 # Initialize Database
 init_db(app)
 
-# === ADD THIS BLOCK ===
-# Ensure tables are created on startup
-with app.app_context():
-    db.create_all()
-    print("✅ Database tables verified/created")
-# === END ADDED BLOCK ===
+# === IMPROVED TABLE CREATION WITH ERROR HANDLING ===
+print("\n🔧 Attempting to create database tables...")
+try:
+    with app.app_context():
+        # Check if tables already exist
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        existing_tables = inspector.get_table_names()
+        
+        if existing_tables:
+            print(f"✅ Found {len(existing_tables)} existing table(s): {existing_tables}")
+        else:
+            print("📭 No tables found, creating them now...")
+            db.create_all()
+            
+            # Verify creation
+            inspector = inspect(db.engine)
+            new_tables = inspector.get_table_names()
+            print(f"✅ Created {len(new_tables)} table(s): {new_tables}")
+            
+except Exception as e:
+    print(f"❌ ERROR during table creation: {type(e).__name__}: {e}")
+    print("⚠️  Tables will be created on first API call instead.")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -49,6 +80,16 @@ def index():
 def get_memories():
     """API endpoint to get all memories for the timeline."""
     try:
+        # AUTO-CREATE TABLES IF MISSING (safety net)
+        with app.app_context():
+            try:
+                # Try a simple query to check if tables exist
+                Media.query.limit(1).all()
+            except Exception as e:
+                print(f"⚠️  Tables missing, creating now: {e}")
+                db.create_all()
+                print("✅ Tables auto-created via API call")
+        
         media_items = Media.query.order_by(Media.upload_date.desc()).all()
         memories = []
         for item in media_items:
@@ -124,8 +165,78 @@ def uploaded_file(filename):
     """Serve uploaded files."""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
+# === DEBUG/ADMIN ROUTES ===
+@app.route('/debug/create-tables')
+def debug_create_tables():
+    """Special route to create database tables on demand."""
+    try:
+        with app.app_context():
+            # Check current tables
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            existing_tables = inspector.get_table_names()
+            
+            if 'media' in existing_tables:
+                return jsonify({
+                    'status': 'info',
+                    'message': 'Tables already exist',
+                    'tables': existing_tables,
+                    'table_count': len(existing_tables)
+                })
+            
+            # Create tables
+            db.create_all()
+            
+            # Verify
+            inspector = inspect(db.engine)
+            new_tables = inspector.get_table_names()
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Created {len(new_tables)} table(s)',
+                'tables': new_tables,
+                'table_count': len(new_tables)
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'error_type': type(e).__name__
+        }), 500
+
+@app.route('/debug/health')
+def debug_health():
+    """Check app and database health."""
+    try:
+        with app.app_context():
+            # Check database connection
+            db.session.execute('SELECT 1')
+            db_ok = True
+            
+            # Check table existence
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            tables = inspector.get_table_names()
+            
+            return jsonify({
+                'status': 'healthy',
+                'database': 'connected',
+                'tables': tables,
+                'table_count': len(tables),
+                'upload_folder_exists': os.path.exists(UPLOAD_FOLDER)
+            })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'database': 'disconnected',
+            'error': str(e),
+            'error_type': type(e).__name__
+        }), 500
+
 # === UNIVERSAL STARTUP ===
 # This works on Railway (reads PORT env var) and locally (defaults to 5000)
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    print(f"\n🌍 Starting Flask server on port {port}...")
     app.run(host='0.0.0.0', port=port)
