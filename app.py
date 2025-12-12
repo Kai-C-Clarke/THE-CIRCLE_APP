@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from urllib.parse import urlparse
+from sqlalchemy import text  # ADD THIS IMPORT
 
 app = Flask(__name__)
 CORS(app)
@@ -89,7 +90,7 @@ try:
             print("📭 No tables found, creating them now...")
             # Test connection first
             try:
-                db.session.execute('SELECT 1')
+                db.session.execute(text('SELECT 1'))  # FIXED: Added text()
                 print("✅ Database connection test passed")
             except Exception as e:
                 print(f"❌ Database connection failed: {e}")
@@ -129,7 +130,7 @@ def get_memories():
                 print(f"⚠️ Tables missing, creating now: {e}")
                 # Test connection first
                 try:
-                    db.session.execute('SELECT 1')
+                    db.session.execute(text('SELECT 1'))  # FIXED: Added text()
                 except Exception as conn_error:
                     print(f"❌ Connection error: {conn_error}")
                     # Return empty array if database is down
@@ -270,8 +271,8 @@ def debug_health():
     """Check app and database health."""
     try:
         with app.app_context():
-            # Check database connection
-            db.session.execute('SELECT 1')
+            # Check database connection - FIXED: Use text()
+            db.session.execute(text('SELECT 1'))
             db_ok = True
             
             # Check table existence
@@ -301,13 +302,13 @@ def debug_test_db():
     """Test database connection specifically."""
     try:
         with app.app_context():
-            # Test raw connection
-            result = db.session.execute('SELECT version()').fetchone()
+            # Test raw connection - FIXED: Use text()
+            result = db.session.execute(text('SELECT version()')).fetchone()
             version = result[0] if result else 'Unknown'
             
-            # Test table query
+            # Test table query - FIXED: Use text()
             table_count = db.session.execute(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'"
+                text("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'")
             ).scalar()
             
             return jsonify({
@@ -323,6 +324,16 @@ def debug_test_db():
             'connection': 'failed',
             'database_url_preview': database_url[:50] + '...' if len(database_url) > 50 else database_url
         }), 500
+
+# === SIMPLE HEALTH CHECK (NO DATABASE) ===
+@app.route('/health')
+def simple_health():
+    """Simple health check that doesn't depend on database."""
+    return jsonify({
+        'status': 'running',
+        'app': 'The Circle - Family Memory App',
+        'timestamp': datetime.now().isoformat()
+    })
 
 # === UNIVERSAL STARTUP ===
 if __name__ == '__main__':
