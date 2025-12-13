@@ -238,28 +238,72 @@ function displayMedia(mediaItems) {
 
 // Get thumbnail HTML based on file type
 function getThumbnailHTML(item) {
-    const fileType = item.filetype.toLowerCase();
+    console.log("DEBUG: getThumbnailHTML called with item:", item);
     
-    if (['png', 'jpg', 'jpeg', 'gif'].includes(fileType)) {
-        if (item.thumbnail) {
-            return `<img src="/static/thumbnails/${item.thumbnail}" alt="${item.title}">`;
+    // Use filetype if available, otherwise guess from filename
+    let fileType = item.filetype;
+    
+    // If no filetype from API, determine from extension
+    if (!fileType && item.filename) {
+        const ext = item.filename.split('.').pop().toLowerCase();
+        console.log("DEBUG: No filetype from API, extension is:", ext);
+        
+        // Convert extension to type
+        const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
+        if (imageExtensions.includes(ext)) {
+            fileType = 'image';
+        } else {
+            fileType = 'document';
         }
-        return `<img src="/static/uploads/${item.filename}" alt="${item.title}">`;
+        console.log("DEBUG: Determined fileType:", fileType);
     }
     
-    if (['mp4', 'mov', 'avi', 'mkv'].includes(fileType)) {
-        return `<i class="fas fa-video" style="color: #667eea;"></i>`;
+    console.log("DEBUG: Final fileType:", fileType);
+    
+    // Get the image source - use photo_url if available, otherwise construct it
+    let imageSrc = item.photo_url;
+    if (!imageSrc && item.filename) {
+        imageSrc = `/static/uploads/${item.filename}`;
     }
     
-    if (['pdf'].includes(fileType)) {
-        return `<i class="fas fa-file-pdf" style="color: #ef4444;"></i>`;
-    }
+    console.log("DEBUG: Image source:", imageSrc);
     
-    if (['doc', 'docx'].includes(fileType)) {
-        return `<i class="fas fa-file-word" style="color: #2563eb;"></i>`;
+    if (fileType === 'image') {
+        return `
+            <div class="thumbnail-container">
+                <img src="${imageSrc}" alt="${item.title || item.name}" 
+                     class="media-thumbnail"
+                     onerror="console.error('Failed to load image:', this.src); this.src='/static/icons/image-error.png';">
+                <div class="thumbnail-title">${item.title || item.name}</div>
+            </div>
+        `;
+    } else {
+        // Document handling
+        const iconClass = getFileIcon(item.filename || item.photo_url);
+        return `
+            <div class="thumbnail-container">
+                <i class="fas ${iconClass} document-icon"></i>
+                <div class="thumbnail-title">${item.title || item.name}</div>
+            </div>
+        `;
     }
+}
+
+// Helper function for document icons
+function getFileIcon(filename) {
+    if (!filename) return 'fa-file';
     
-    return `<i class="fas fa-file" style="color: #adb5bd;"></i>`;
+    const ext = filename.split('.').pop().toLowerCase();
+    
+    switch(ext) {
+        case 'pdf': return 'fa-file-pdf';
+        case 'doc': case 'docx': return 'fa-file-word';
+        case 'xls': case 'xlsx': return 'fa-file-excel';
+        case 'ppt': case 'pptx': return 'fa-file-powerpoint';
+        case 'txt': return 'fa-file-alt';
+        case 'zip': case 'rar': case '7z': return 'fa-file-archive';
+        default: return 'fa-file';
+    }
 }
 
 // View media in modal
